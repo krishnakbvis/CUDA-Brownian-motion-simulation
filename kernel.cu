@@ -193,7 +193,7 @@ int main()
     double* dev_yPositionMatrix;
     cudaMalloc((void**)&dev_xPositionMatrix, iterations * N * sizeof(double));
     cudaMalloc((void**)&dev_yPositionMatrix, iterations * N * sizeof(double));
-
+    
     srand(time(NULL)); // Initialize random number generator
 
     // Initialize velocities, positions, and masses
