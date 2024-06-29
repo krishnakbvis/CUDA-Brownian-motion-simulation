@@ -193,10 +193,10 @@ int main()
     // Initialize velocities, positions, and masses
     for (int i = 0; i < N; i++) {
         masses[i] = 1;
-        xPos[i] = rand() % 50 - 20;
-        yPos[i] = rand() % 50 - 20;
-        xVel[i] = rand() % 4 - 2;
-        yVel[i] = rand() % 4 - 2;
+        xPos[i] = (double) rand() / (double)(RAND_MAX / 20);
+        yPos[i] = (double)rand() / (double)(RAND_MAX / 20);
+        xVel[i] = (double)rand() / (double)(RAND_MAX / 4);
+        yVel[i] = (double)rand() / (double)(RAND_MAX / 4);
         radii[i] = 0.3;
         sigma[i] = 1;
     }
