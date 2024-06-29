@@ -70,8 +70,11 @@ __global__ void numericalIntegrate(int row, double* xPositionMatrix, double* yPo
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < N)
     {
-        xPositionMatrix[(row % 100) * N + i] = xPos[i];
-        yPositionMatrix[(row % 100) * N + i] = yPos[i];
+        if (row % 100 == 0) {
+            int r = row / 100;
+            xPositionMatrix[(r) * N + i] = xPos[i];
+            yPositionMatrix[(r) * N + i] = yPos[i];
+        }
 
         xVel[i] += accX[i] * timeStep;
         yVel[i] += accY[i] * timeStep;
@@ -82,13 +85,11 @@ __global__ void numericalIntegrate(int row, double* xPositionMatrix, double* yPo
 }
 
 // Function to compute accelerations
-cudaError_t computeAccelerations(double* xPos, double* yPos, double* masses, double* accX, double* accY, double* sigma,
+cudaError_t computeAccelerations(double* dev_xPos, double* dev_yPos, double* masses, double* accX, double* accY, double* sigma,
     const unsigned int N, const double A, const double B, const double epsilon, double timeStep)
 {
     double* dev_forceX;
     double* dev_forceY;
-    double* dev_xPos;
-    double* dev_yPos;
     double* dev_accX;
     double* dev_accY;
     double* dev_masses;
@@ -108,8 +109,6 @@ cudaError_t computeAccelerations(double* xPos, double* yPos, double* masses, dou
     cudaMalloc((void**)&dev_sigma, N * sizeof(double));
 
     // Copy input vectors from host memory to GPU buffers
-    cudaMemcpy(dev_xPos, xPos, N * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_yPos, yPos, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(dev_masses, masses, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(dev_sigma, sigma, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(dev_forceX, forceX, N * N * sizeof(double), cudaMemcpyHostToDevice);
@@ -129,18 +128,11 @@ cudaError_t computeAccelerations(double* xPos, double* yPos, double* masses, dou
     // Aggregate accelerations
     aggregateAccelerations << <(N + threadsPerBlock.x - 1) / threadsPerBlock.x, threadsPerBlock.x >> > (dev_forceX, dev_forceY, dev_accX, dev_accY, dev_masses, N);
     cudaStatus = cudaDeviceSynchronize();
-    // Copy output vectors from GPU buffer to host memory
-    cudaMemcpy(accX, dev_accX, N * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(accY, dev_accY, N * sizeof(double), cudaMemcpyDeviceToHost);
 
 
     // Free GPU buffers
     cudaFree(dev_forceX);
     cudaFree(dev_forceY);
-    cudaFree(dev_xPos);
-    cudaFree(dev_yPos);
-    cudaFree(dev_accX);
-    cudaFree(dev_accY);
     cudaFree(dev_masses);
     cudaFree(dev_sigma);
 
@@ -156,7 +148,7 @@ int main()
     double B = 1;
     int count = 0;
     double t = 0;
-    double runTime = 1;
+    double runTime = 2;
     double timeStep = pow(10, -4);
     int iterations = runTime / timeStep;
 
@@ -180,11 +172,21 @@ int main()
 
     double* dev_xPositionMatrix;
     double* dev_yPositionMatrix;
+    double* dev_xPos;
+    double* dev_yPos;
+    double* dev_xVel;
+    double* dev_yVel;
+    double* dev_accX;
+    double* dev_accY;
     cudaMalloc((void**)&dev_xPositionMatrix, runTime*100 * N * sizeof(double));
     cudaMalloc((void**)&dev_yPositionMatrix, runTime*100 * N * sizeof(double));
+    cudaMalloc((void**)&dev_xPos, N * sizeof(double));
+    cudaMalloc((void**)&dev_yPos, N * sizeof(double));
+    cudaMalloc((void**)&dev_xVel, N * sizeof(double));
+    cudaMalloc((void**)&dev_yVel, N * sizeof(double));
+    cudaMalloc((void**)&dev_accX, N * sizeof(double));
+    cudaMalloc((void**)&dev_accY, N * sizeof(double));
 
-    cudaMemcpy(dev_xPositionMatrix, xPositionMatrix, N * runTime*100 * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_yPositionMatrix, yPositionMatrix, N * runTime*100 * sizeof(double), cudaMemcpyHostToDevice);
 
 
     srand(time(NULL)); // Initialize random number generator
@@ -201,38 +203,38 @@ int main()
     masses[N / 2] = 1000; // Set Brownian particle mass
     radii[N / 2] = 0.7;
 
+    cudaMemcpy(dev_xPos, xPos, N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_yPos, yPos, N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_xVel, xVel, N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_yVel, yVel, N * sizeof(double), cudaMemcpyHostToDevice);
+
+
 
     for (count = 0; count < iterations; count++) {
         // Compute accelerations
-        computeAccelerations(xPos, yPos, masses, accX, accY, sigma, N, A, B, epsilon, timeStep);
+        computeAccelerations(dev_xPos, dev_yPos, masses, dev_accX, dev_accY, sigma, N, A, B, epsilon, timeStep);
         // Perform numerical integration
-        numericalIntegrate <<<blocksPerGrid, threadsPerBlock >>> (count, dev_xPositionMatrix, dev_yPositionMatrix, xPos, yPos, xVel, yVel, accX, accY, N, timeStep);
-        for (int j = 0; j < N; j++) {
-            printf("%f ", xPos[j]);
-        }
-        printf("\n");
+        numericalIntegrate <<<blocksPerGrid, threadsPerBlock >>> (count, dev_xPositionMatrix, dev_yPositionMatrix, dev_xPos, dev_yPos, dev_xVel, dev_yVel, dev_accX, dev_accY, N, timeStep);
         cudaDeviceSynchronize();
         t += timeStep;
     }
 
     // Copy final position matrices back from device to host
-    cudaMemcpy(xPositionMatrix, dev_xPositionMatrix, iterations * N * sizeof(double), cudaMemcpyDeviceToHost);
-    cudaMemcpy(yPositionMatrix, dev_yPositionMatrix, iterations * N * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(xPositionMatrix, dev_xPositionMatrix, runTime*100 * N * sizeof(double), cudaMemcpyDeviceToHost);
+    cudaMemcpy(yPositionMatrix, dev_yPositionMatrix, runTime*100 * N * sizeof(double), cudaMemcpyDeviceToHost);
 
-    //for (int i = 0; i < 100*runTime; i++) {
-    //    for (int j = 0; j < N; j++) {
-    //        printf("%f ", xPositionMatrix[i * N + j]);
-    //    }
-    //    printf("\n");
-    //}
-    //for (int i = 0; i < 100*runTime; i++) {
-    //    for (int j = 0; j < N; j++) {
-    //        printf("%f ", yPositionMatrix[i * N + j]);
-    //    }
-    //    printf("\n");
-    //}
-
-
+    for (int i = 0; i < 100*runTime; i++) {
+        for (int j = 0; j < N; j++) {
+            printf("%f ", xPositionMatrix[i * N + j]);
+        }
+        printf("\n");
+    }
+    for (int i = 0; i < 100*runTime; i++) {
+        for (int j = 0; j < N; j++) {
+            printf("%f ", yPositionMatrix[i * N + j]);
+        }
+        printf("\n");
+    }
 
     // Free allocated memory
     free(xPos);
