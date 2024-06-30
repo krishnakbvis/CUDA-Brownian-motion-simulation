@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <time.h>
+#include <iostream>
 
 // Kernel to compute force matrix
 // Kernel to compute force matrix
@@ -65,8 +66,8 @@ __global__ void aggregateAccelerations(double* forceX, double* forceY, double* a
 
 
 // Kernel to perform numerical integration
-__global__ void numericalIntegrate(int row, double* xPositionMatrix, double* yPositionMatrix, double* xPos, double* yPos, double* xVel,
-    double* yVel, double* accX, double* accY, int N, double timeStep) {
+__global__ void integratePositions(int row, double* xPositionMatrix, double* yPositionMatrix, double* xPos, double* yPos, double* xVel,
+    double* yVel, double* accX, double* accY, int N, double timeStep, double* radii, int boxwidth) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < N)
     {
@@ -76,13 +77,33 @@ __global__ void numericalIntegrate(int row, double* xPositionMatrix, double* yPo
             yPositionMatrix[(r) * N + i] = yPos[i];
         }
 
-        xVel[i] += accX[i] * timeStep;
-        yVel[i] += accY[i] * timeStep;
+        xPos[i] += xVel[i] * timeStep + 0.5*accX[i]*timeStep*timeStep;
+        yPos[i] += yVel[i] * timeStep + 0.5 * accY[i] * timeStep * timeStep;
 
-        xPos[i] += xVel[i] * timeStep;
-        yPos[i] += yVel[i] * timeStep;
+        if ((xPos[i] - radii[i] <= 0) || (xPos[i] + radii[i] >= boxwidth)) {
+            xVel[i] = -xVel[i];
+        }
+        if ((yPos[i] - radii[i] <= 0) || (yPos[i] + radii[i] >= boxwidth)) {
+            yVel[i] = -yVel[i];
+        }
+
     }
 }
+
+
+__global__ void integrateVelocities(double* xVel,
+    double* yVel, double* oldAccX, double* oldAccY, double* newAccX, double* newAccY, int N, double timeStep) {
+    int i = blockIdx.x * blockDim.x + threadIdx.x;
+    if (i < N)
+    {
+        xVel[i] = xVel[i] + 0.5 * (newAccX[i] + oldAccX[i]) * timeStep;
+        yVel[i] = yVel[i] + 0.5 * (newAccY[i] + newAccY[i]) * timeStep;
+
+        oldAccX[i] = newAccX[i];
+        oldAccY[i] = newAccY[i];
+    }
+}
+
 
 // Function to compute accelerations
 cudaError_t computeAccelerations(double* dev_xPos, double* dev_yPos, double* masses, double* accX, double* accY, double* sigma,
@@ -139,17 +160,38 @@ cudaError_t computeAccelerations(double* dev_xPos, double* dev_yPos, double* mas
     return cudaStatus;
 }
 
+
+#include <stdio.h>
+
+// Function to write a matrix to a CSV file
+void writeMatrixToFile(double* matrix, int rows, int cols, const char* filename) {
+    FILE* file = fopen(filename, "w");
+    if (file == NULL) {
+        fprintf(stderr, "Error opening file %s for writing.\n", filename);
+        return;
+    }
+    for (int i = 0; i < rows; i++) {
+        for (int j = 0; j < cols; j++) {
+            fprintf(file, "%f", matrix[i * cols + j]);
+            if (j < cols - 1) fprintf(file, ","); // No trailing comma at the end of the row
+        }
+        fprintf(file, "\n"); // New line at the end of each row
+    }
+    fclose(file);
+}
+
 // Main function
 int main()
 {
-    const int N = 100;
+    const int N = 200;
     double epsilon = 5;
     double A = 3;
     double B = 1;
     int count = 0;
     double t = 0;
-    double runTime = 2;
+    double runTime = 10;
     double timeStep = pow(10, -4);
+    double boxwidth = 25;
     int iterations = runTime / timeStep;
 
     dim3 threadsPerBlock(16, 16);
@@ -178,6 +220,9 @@ int main()
     double* dev_yVel;
     double* dev_accX;
     double* dev_accY;
+    double* dev_radii;
+    double* dev_newaccX;
+    double* dev_newaccY;
     cudaMalloc((void**)&dev_xPositionMatrix, runTime*100 * N * sizeof(double));
     cudaMalloc((void**)&dev_yPositionMatrix, runTime*100 * N * sizeof(double));
     cudaMalloc((void**)&dev_xPos, N * sizeof(double));
@@ -186,6 +231,10 @@ int main()
     cudaMalloc((void**)&dev_yVel, N * sizeof(double));
     cudaMalloc((void**)&dev_accX, N * sizeof(double));
     cudaMalloc((void**)&dev_accY, N * sizeof(double));
+    cudaMalloc((void**)&dev_radii, N * sizeof(double));
+    cudaMalloc((void**)&dev_newaccX, N * sizeof(double));
+    cudaMalloc((void**)&dev_newaccY, N * sizeof(double));
+
 
 
 
@@ -207,14 +256,19 @@ int main()
     cudaMemcpy(dev_yPos, yPos, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(dev_xVel, xVel, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(dev_yVel, yVel, N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_radii, radii, N * sizeof(double), cudaMemcpyHostToDevice);
+
+    computeAccelerations(dev_xPos, dev_yPos, masses, dev_accX, dev_accY, sigma, N, A, B, epsilon, timeStep);
 
 
 
     for (count = 0; count < iterations; count++) {
+        integratePositions<<<blocksPerGrid, threadsPerBlock>>>(count, dev_xPositionMatrix, dev_yPositionMatrix, dev_xPos, dev_yPos, dev_xVel, dev_yVel, dev_accX, dev_accY, N, timeStep, dev_radii, boxwidth);
         // Compute accelerations
-        computeAccelerations(dev_xPos, dev_yPos, masses, dev_accX, dev_accY, sigma, N, A, B, epsilon, timeStep);
+        computeAccelerations (dev_xPos, dev_yPos, masses, dev_newaccX, dev_newaccY, sigma, N, A, B, epsilon, timeStep);
         // Perform numerical integration
-        numericalIntegrate <<<blocksPerGrid, threadsPerBlock >>> (count, dev_xPositionMatrix, dev_yPositionMatrix, dev_xPos, dev_yPos, dev_xVel, dev_yVel, dev_accX, dev_accY, N, timeStep);
+        integrateVelocities << <blocksPerGrid, threadsPerBlock >> > (dev_xVel,
+            dev_yVel, dev_accX, dev_accY, dev_newaccX, dev_newaccY, N, timeStep);
         cudaDeviceSynchronize();
         t += timeStep;
     }
@@ -222,19 +276,10 @@ int main()
     // Copy final position matrices back from device to host
     cudaMemcpy(xPositionMatrix, dev_xPositionMatrix, runTime*100 * N * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(yPositionMatrix, dev_yPositionMatrix, runTime*100 * N * sizeof(double), cudaMemcpyDeviceToHost);
+    
+    writeMatrixToFile(xPositionMatrix, runTime * 100, N, "xPositionMatrix.csv");
+    writeMatrixToFile(yPositionMatrix, runTime * 100, N , "yPositionMatrix.csv");
 
-    for (int i = 0; i < 100*runTime; i++) {
-        for (int j = 0; j < N; j++) {
-            printf("%f ", xPositionMatrix[i * N + j]);
-        }
-        printf("\n");
-    }
-    for (int i = 0; i < 100*runTime; i++) {
-        for (int j = 0; j < N; j++) {
-            printf("%f ", yPositionMatrix[i * N + j]);
-        }
-        printf("\n");
-    }
 
     // Free allocated memory
     free(xPos);
