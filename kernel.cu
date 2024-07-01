@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <time.h>
 #include <iostream>
+#include <stdio.h>
+
 
 // Kernel to compute force matrix
 // Kernel to compute force matrix
@@ -70,7 +72,7 @@ __global__ void integratePositions(int count, double* dev_xPosMatrix, double* de
             dev_xPosMatrix[row * N + i] = xPos[i];
             dev_yPosMatrix[row * N + i] = yPos[i];
         }
-        xPos[i] += xVel[i] * timeStep + 0.5*accX[i]*timeStep*timeStep;
+        xPos[i] += xVel[i] * timeStep + 0.5 * accX[i] * timeStep * timeStep;
         yPos[i] += yVel[i] * timeStep + 0.5 * accY[i] * timeStep * timeStep;
 
         // Handle boundary conditions after position update
@@ -146,13 +148,20 @@ void printMatrix(double* matrix, int rows, int cols) {
 }
 
 
+void saveArrayToFile(double* array, int size, const char* filename) {
+    FILE* file = fopen(filename, "wb");
+    if (file != NULL) {
+        fwrite(array, sizeof(double), size, file);
+        fclose(file);
+    }
+}
 
 
 
 int main()
 {
     int samplerate = 1000;
-    const int N = 100;
+    const int N = 200;
     const double epsilon = 0.1;
     const double A = 0.4;
     const double B = 1;
@@ -160,6 +169,8 @@ int main()
     const int runTime = 5;
     const int iterations = runTime / timeStep;
     const int boxwidth = 25;
+
+
     // Allocate memory
     double* xPos = (double*)malloc(N * sizeof(double));
     double* yPos = (double*)malloc(N * sizeof(double));
@@ -177,13 +188,13 @@ int main()
         masses[i] = 1;
         xPos[i] = (double)rand() / (double)(RAND_MAX / 20);
         yPos[i] = (double)rand() / (double)(RAND_MAX / 20);
-        xVel[i] = (double)rand() / (double)(RAND_MAX / 14);
-        yVel[i] = (double)rand() / (double)(RAND_MAX / 14);
+        xVel[i] = (double)rand() / (double)(RAND_MAX / 10)-10;
+        yVel[i] = (double)rand() / (double)(RAND_MAX / 10)-10;
         radii[i] = 0.3;
         sigma[i] = 0.3/pow(2,1/6);
     }
-    masses[N / 2] = 1000; // Brownian particle
-    radii[N / 2] = 0.7;
+    masses[N / 2] = 1; // Brownian particle
+    radii[N / 2] = 0.3;
 
     // Allocate device memory
     double* dev_xPos, * dev_yPos, * dev_xVel, * dev_yVel, * dev_accX, * dev_accY;
@@ -211,13 +222,13 @@ int main()
 
     // Copy data to device
     cudaMemcpy(dev_xPos, xPos, N * sizeof(double), cudaMemcpyHostToDevice);
-    cudaMemcpy(dev_yPos, yPos, N * sizeof(double), cudaMemcpyHostToDevice);
+    cudaMemcpy(dev_yPos, yPos, N * sizeof(double), cudaMemcpyHostToDevice); 
     cudaMemcpy(dev_xVel, xVel, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(dev_yVel, yVel, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(dev_sigma, sigma, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(dev_masses, masses, N * sizeof(double), cudaMemcpyHostToDevice);
     cudaMemcpy(dev_radii, radii, N * sizeof(double), cudaMemcpyHostToDevice);
-
+        
     dim3 threadsPerBlock(16, 16);
     dim3 blocksPerGrid((N + threadsPerBlock.x - 1) / threadsPerBlock.x);
 
@@ -225,7 +236,7 @@ int main()
     computeAccelerations(dev_forceX, dev_forceY, dev_xPos, dev_yPos, dev_masses, dev_accX, dev_accY, dev_sigma, N, A, B, epsilon, timeStep);
 
 
-    // Main loop
+    // Main loop        
     for (int count = 0; count < iterations; count++) {
         integratePositions << <blocksPerGrid, threadsPerBlock >> > (count, dev_xmat, dev_ymat, dev_xPos, dev_yPos, 
             dev_xVel, dev_yVel, dev_accX, dev_accY, N, timeStep, dev_radii, boxwidth);
@@ -234,7 +245,7 @@ int main()
         // Compute new accelerations after positions are updated
         computeAccelerations(dev_forceX, dev_forceY, dev_xPos, dev_yPos, dev_masses, dev_newaccX, dev_newaccY, 
             dev_sigma, N, A, B, epsilon, timeStep);
-
+        cudaDeviceSynchronize();
         // Update velocities using old and new accelerations
         integrateVelocities <<<blocksPerGrid, threadsPerBlock >> > (dev_xVel, dev_yVel, dev_accX, dev_accY,
             dev_newaccX, dev_newaccY, N, timeStep);
@@ -245,6 +256,12 @@ int main()
     // Copy results back to host
     cudaMemcpy(xPositionMatrix, dev_xmat, (iterations/samplerate) * N * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(yPositionMatrix, dev_ymat, (iterations/samplerate) * N * sizeof(double), cudaMemcpyDeviceToHost);
+
+    //writeMatrixToFile(xPositionMatrix, iterations / samplerate, N, "xPositionMatrix.csv");
+    //writeMatrixToFile(yPositionMatrix, iterations / samplerate, N, "yPositionMatrix.csv");
+    
+    saveArrayToFile(xPositionMatrix, N * (iterations / samplerate), "xPositionMatrix.bin");
+    saveArrayToFile(yPositionMatrix, N * (iterations / samplerate), "yPositionMatrix.bin");
 
 
     // Free memory
