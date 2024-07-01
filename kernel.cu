@@ -14,25 +14,25 @@ __global__ void computeForces(double* forceX, double* forceY, double* xPos, doub
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (i < N && j < N)
+    if (i < N && j < N && i != j)
     {
         double dx = xPos[i] - xPos[j];
         double dy = yPos[i] - yPos[j];
         double sep = sqrt(dx * dx + dy * dy);
 
         // Avoid division by zero and self-interaction
-        if (sep == 0) {
-            forceX[i * N + j] = 0.0;
-            forceY[i * N + j] = 0.0;
+        if (sep > 1e-9) {  // Use a small threshold to avoid zero division
+            double invr7 = 1.0 / pow(sep, 7);
+            double invr13 = 1.0 / pow(sep, 13);
+
+            // Calculate force
+            double force = 4 * epsilon * ((A * pow(sigma[i], 6) * invr7) - (B * pow(sigma[i], 12) * invr13));
+            forceX[i * N + j] = -(dx / sep) * force;
+            forceY[i * N + j] = -(dy / sep) * force;
         }
         else {
-            double invr7 = 1.0 / (pow(sep, 7));
-            double invr13 = 1.0 / (pow(sep, 13));
-
-            // Calculate force avoiding NaN
-            double force = 4 * epsilon * (A * pow(sigma[i], 6) * invr7 - B * pow(sigma[i], 12) * invr13);
-            forceX[i * N + j] = (dx / sep) * force;
-            forceY[i * N + j] = (dy / sep) * force;
+            forceX[i * N + j] = 0.0;
+            forceY[i * N + j] = 0.0;
         }
     }
 }
@@ -65,41 +65,41 @@ __global__ void aggregateAccelerations(double* forceX, double* forceY, double* a
 }
 
 
-__global__ void integratePositions(int count, double* dev_xPosMatrix, double* dev_yPosMatrix, double* xPos, double* yPos, double* xVel,
-    double* yVel, double* accX, double* accY, int N, double timeStep, double* radii, int boxwidth) {
+
+__global__ void integratePositions(int count, double* dev_xPosMatrix, double* dev_yPosMatrix, double* xPos, double* yPos, double* xVel, double* yVel, double* accX, double* accY, int N, double timeStep, double* radii, int boxwidth) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    if (i < N)
-    {
+    if (i < N) {
         if (count % 100 == 0) {
             int row = count / 100;
             dev_xPosMatrix[row * N + i] = xPos[i];
             dev_yPosMatrix[row * N + i] = yPos[i];
         }
 
-        xPos[i] += xVel[i] * timeStep + (0.5 * accX[i] * timeStep * timeStep);
-        yPos[i] += yVel[i] * timeStep + (0.5 * accY[i] * timeStep * timeStep);
+        xPos[i] += xVel[i] * timeStep + 0.5 * accX[i] * timeStep * timeStep;
+        yPos[i] += yVel[i] * timeStep + 0.5 * accY[i] * timeStep * timeStep;
 
+        // Handle boundary conditions after position update
+        if (xPos[i] - radii[i] <= 0 || xPos[i] + radii[i] >= boxwidth) {
+            xVel[i] = -xVel[i];
+        }
+        if (yPos[i] - radii[i] <= 0 || yPos[i] + radii[i] >= boxwidth) {
+            yVel[i] = -yVel[i];
+        }
     }
 }
 
 
-__global__ void integrateVelocities(double* xVel, double* xPos, double* yPos, double* radii, int boxwidth,
-    double* yVel, double* oldAccX, double* oldAccY, double* newAccX, double* newAccY, int N, double timeStep) {
+__global__ void integrateVelocities(double* xVel, double* yVel, double* oldAccX, double* oldAccY, double* newAccX, double* newAccY, int N, double timeStep) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < N)
     {
+        xVel[i] += 0.5 * (newAccX[i] + oldAccX[i]) * timeStep;
+        yVel[i] += 0.5 * (newAccY[i] + oldAccY[i]) * timeStep;
 
-        if ((xPos[i] - radii[i] <= 0) || (xPos[i] + radii[i] >= boxwidth)) {
-            xVel[i] = -xVel[i];
-        }
-        if ((yPos[i] - radii[i] <= 0) || (yPos[i] + radii[i] >= boxwidth)) {
-            yVel[i] = -yVel[i];
-        }
-
-        xVel[i] = xVel[i] +  (oldAccX[i]) * timeStep;
-        yVel[i] = yVel[i] +  (newAccY[i]) * timeStep;
+        oldAccX[i] = newAccX[i];
     }
 }
+
 
 
 // Function to compute accelerations
@@ -160,9 +160,13 @@ void printMatrix(double* matrix, int rows, int cols) {
     }
 }
 
+
+
+
+
 int main()
 {
-    const int N = 100;
+    const int N = 10;
     const double epsilon = 0.1;
     const double A = 1;
     const double B = 1;
@@ -193,7 +197,7 @@ int main()
         radii[i] = 0.3;
         sigma[i] = 0.3/pow(2,1/6);
     }
-    masses[N / 2] = 1000; // Brownian particle
+    masses[N / 2] = 1; // Brownian particle
     radii[N / 2] = 0.7;
 
     // Allocate device memory
@@ -233,14 +237,21 @@ int main()
 
     // Main loop
     for (int count = 0; count < iterations; count++) {
-        integratePositions << <blocksPerGrid, threadsPerBlock >> > (count, dev_xmat, dev_ymat, dev_xPos, dev_yPos, dev_xVel, dev_yVel, dev_accX, dev_accY, N, timeStep, dev_radii, boxwidth);
+        integratePositions << <blocksPerGrid, threadsPerBlock >> > (count, dev_xmat, dev_ymat, dev_xPos, dev_yPos, 
+            dev_xVel, dev_yVel, dev_accX, dev_accY, N, timeStep, dev_radii, boxwidth);
         cudaDeviceSynchronize();
 
+        // Compute new accelerations after positions are updated
         computeAccelerations(dev_xPos, dev_yPos, dev_masses, dev_newaccX, dev_newaccY, dev_sigma, N, A, B, epsilon, timeStep);
-
-        integrateVelocities << <blocksPerGrid, threadsPerBlock >> > (dev_xVel, dev_xPos, dev_yPos, dev_radii, boxwidth, dev_yVel, dev_accX, dev_accY, dev_newaccX, dev_newaccY, N, timeStep);
         cudaDeviceSynchronize();
+
+        // Update velocities using old and new accelerations
+        integrateVelocities << <blocksPerGrid, threadsPerBlock >> > (dev_xVel, dev_yVel, dev_accX, dev_accY, 
+            dev_newaccX, dev_newaccY, N, timeStep);
+        cudaDeviceSynchronize();
+
     }
+
 
     // Copy results back to host
     cudaMemcpy(xPositionMatrix, dev_xmat, runTime*100 * N * sizeof(double), cudaMemcpyDeviceToHost);
