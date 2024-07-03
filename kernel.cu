@@ -156,7 +156,7 @@ int main()
     const double timeStep = 1e-4;
     const int runTime = 10;
     int samplerate = 100;
-    const int N = 30;
+    const int N = 100;
     const double epsilon = 0.1;
     const double A = 0.4;
     const double B = 1;
@@ -180,13 +180,13 @@ int main()
         masses[i] = 1;
         xPos[i] = (double)rand() / (double)(RAND_MAX / 20);
         yPos[i] = (double)rand() / (double)(RAND_MAX / 20);
-        xVel[i] = (double)rand() / (double)(RAND_MAX / 14);
-        yVel[i] = (double)rand() / (double)(RAND_MAX / 14);
+        xVel[i] = (double)rand() / (double)(RAND_MAX / 10) - 5;
+        yVel[i] = (double)rand() / (double)(RAND_MAX / 10) - 5;
         radii[i] = 0.3;
         sigma[i] = 0.3 / pow(2, 1 / 6);
     }
-    masses[N / 2] = 1000; // Brownian particle
-    radii[N / 2] = 1;
+    masses[N / 2] = 1; // Brownian particle
+    radii[N / 2] = 0.3;
 
     // Allocate device memory
     double* dev_xPos, * dev_yPos, * dev_xVel, * dev_yVel, * dev_accX, * dev_accY;
