@@ -7,7 +7,6 @@
 #include <iostream>
 
 // Kernel to compute force matrix
-// Kernel to compute force matrix
 
 
 __global__ void computeForces(double* forceX, double* forceY, double* xPos, double* yPos,
@@ -16,7 +15,7 @@ __global__ void computeForces(double* forceX, double* forceY, double* xPos, doub
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int j = blockIdx.y * blockDim.y + threadIdx.y;
 
-    if (i < N && j < N && i != j)
+    if (i < N && j < N)
     {
         double dx = xPos[j] - xPos[i];
         double dy = yPos[j] - yPos[i];
@@ -63,7 +62,7 @@ __global__ void aggregateAccelerations(double* forceX, double* forceY, double* a
 __global__ void integratePositions(int count, double* dev_xPosMatrix, double* dev_yPosMatrix, double* xPos, double* yPos,
     double* xVel, double* yVel, double* accX, double* accY, int N, double timeStep, double* radii, int boxwidth) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
-    int sample = 1000;
+    int sample = 100;
     if (i < N) {
         if (count % sample == 0) {
             int row = count / sample;
@@ -74,10 +73,10 @@ __global__ void integratePositions(int count, double* dev_xPosMatrix, double* de
         yPos[i] += yVel[i] * timeStep + 0.5 * accY[i] * timeStep * timeStep;
 
         // Handle boundary conditions after position update
-        if ((xPos[i] - radii[i]) <= 0 || (xPos[i] + radii[i]) >= boxwidth) {
+        if (((xPos[i] - radii[i]) <= 0) || ((xPos[i] + radii[i]) >= boxwidth)) {
             xVel[i] = -xVel[i];
         }
-        if ((yPos[i] - radii[i]) <= 0 || (yPos[i] + radii[i]) >= boxwidth) {
+        if (((yPos[i] - radii[i]) <= 0) || ((yPos[i] + radii[i]) >= boxwidth)) {
             yVel[i] = -yVel[i];
         }
     }
@@ -89,6 +88,9 @@ __global__ void integrateVelocities(double* xVel, double* yVel, double* oldAccX,
     {
         xVel[i] += 0.5 * (oldAccX[i] + newAccX[i]) * timeStep;
         yVel[i] += 0.5 * (oldAccY[i] + newAccY[i]) * timeStep;  // Use newAccY here
+
+        oldAccX[i] = newAccX[i];
+        oldAccY[i] = newAccY[i];
     }
 }
 
@@ -106,7 +108,7 @@ cudaError_t computeAccelerations(double* dev_forceX, double* dev_forceY, double*
 
     // Launch the kernel on the GPU
     computeForces << <blocksPerGrid, threadsPerBlock >> > (dev_forceX, dev_forceY, dev_xPos, dev_yPos,
-        N, 1, 1, dev_sigma, epsilon);
+        N, A, B, dev_sigma, epsilon);
     cudaError_t cudaStatus = cudaDeviceSynchronize();
     // Aggregate accelerations
     aggregateAccelerations << <blocksPerGrid, threadsPerBlock.x >> > (dev_forceX, dev_forceY, dev_accX, dev_accY, dev_masses, N);
@@ -151,13 +153,14 @@ void printMatrix(double* matrix, int rows, int cols) {
 
 int main()
 {
-    int samplerate = 1000;
-    const int N = 100;
+    const double timeStep = 1e-4;
+    const int runTime = 10;
+    int samplerate = 100;
+    const int N = 30;
     const double epsilon = 0.1;
     const double A = 0.4;
     const double B = 1;
-    const double timeStep = 1e-5;
-    const int runTime = 5;
+
     const int iterations = runTime / timeStep;
     const int boxwidth = 25;
     // Allocate memory
@@ -182,8 +185,8 @@ int main()
         radii[i] = 0.3;
         sigma[i] = 0.3 / pow(2, 1 / 6);
     }
-    masses[N / 2] = 1000; // Brownian particle
-    radii[N / 2] = 0.7;
+    masses[N / 2] = 1; // Brownian particle
+    radii[N / 2] = 0.3;
 
     // Allocate device memory
     double* dev_xPos, * dev_yPos, * dev_xVel, * dev_yVel, * dev_accX, * dev_accY;
@@ -229,6 +232,7 @@ int main()
     for (int count = 0; count < iterations; count++) {
         integratePositions << <blocksPerGrid, threadsPerBlock >> > (count, dev_xmat, dev_ymat, dev_xPos, dev_yPos,
             dev_xVel, dev_yVel, dev_accX, dev_accY, N, timeStep, dev_radii, boxwidth);
+
         cudaDeviceSynchronize();
 
         // Compute new accelerations after positions are updated
@@ -238,6 +242,7 @@ int main()
         // Update velocities using old and new accelerations
         integrateVelocities << <blocksPerGrid, threadsPerBlock >> > (dev_xVel, dev_yVel, dev_accX, dev_accY,
             dev_newaccX, dev_newaccY, N, timeStep);
+
         cudaDeviceSynchronize();
 
     }
@@ -245,6 +250,9 @@ int main()
     // Copy results back to host
     cudaMemcpy(xPositionMatrix, dev_xmat, (iterations / samplerate) * N * sizeof(double), cudaMemcpyDeviceToHost);
     cudaMemcpy(yPositionMatrix, dev_ymat, (iterations / samplerate) * N * sizeof(double), cudaMemcpyDeviceToHost);
+
+    writeMatrixToFile(xPositionMatrix, iterations / samplerate, N, "xPositionMatrix.csv");
+    writeMatrixToFile(yPositionMatrix, iterations / samplerate, N, "yPositionMatrix.csv");
 
 
     // Free memory
