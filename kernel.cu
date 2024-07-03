@@ -156,13 +156,13 @@ int main()
     const double timeStep = 1e-4;
     const int runTime = 10;
     int samplerate = 100;
-    const int N = 100;
+    const int N = 400;
     const double epsilon = 0.1;
     const double A = 0.4;
     const double B = 1;
 
     const int iterations = runTime / timeStep;
-    const double boxwidth = 25.0;
+    const double boxwidth = 35.0;
     // Allocate memory
     double* xPos = (double*)malloc(N * sizeof(double));
     double* yPos = (double*)malloc(N * sizeof(double));
@@ -170,7 +170,7 @@ int main()
     double* yVel = (double*)malloc(N * sizeof(double));
     double* masses = (double*)malloc(N * sizeof(double));
     double* sigma = (double*)malloc(N * sizeof(double));
-    double* radii = (double*)malloc(N * sizeof(double));
+    double* radii = (double*)malloc(N * sizeof(double));    
     double* xPositionMatrix = (double*)malloc((iterations / samplerate) * N * sizeof(double));
     double* yPositionMatrix = (double*)malloc((iterations / samplerate) * N * sizeof(double));
 
@@ -178,10 +178,10 @@ int main()
     srand(time(NULL));
     for (int i = 0; i < N; i++) {
         masses[i] = 1;
-        xPos[i] = (double)rand() / (double)(RAND_MAX / 20);
-        yPos[i] = (double)rand() / (double)(RAND_MAX / 20);
-        xVel[i] = (double)rand() / (double)(RAND_MAX / 10) - 5;
-        yVel[i] = (double)rand() / (double)(RAND_MAX / 10) - 5;
+        xPos[i] = (double)rand() / (double)(RAND_MAX / 33);
+        yPos[i] = (double)rand() / (double)(RAND_MAX / 33);
+        xVel[i] = (double)rand() / (double)(RAND_MAX / 5)-2.5;
+        yVel[i] = (double)rand() / (double)(RAND_MAX / 5)-2.5;
         radii[i] = 0.3;
         sigma[i] = 0.3 / pow(2, 1 / 6);
     }
