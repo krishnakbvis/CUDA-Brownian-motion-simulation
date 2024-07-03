@@ -60,7 +60,7 @@ __global__ void aggregateAccelerations(double* forceX, double* forceY, double* a
 
 
 __global__ void integratePositions(int count, double* dev_xPosMatrix, double* dev_yPosMatrix, double* xPos, double* yPos,
-    double* xVel, double* yVel, double* accX, double* accY, int N, double timeStep, double* radii, int boxwidth) {
+    double* xVel, double* yVel, double* accX, double* accY, int N, double timeStep, double* radii, double bw) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     int sample = 100;
     if (i < N) {
@@ -73,10 +73,10 @@ __global__ void integratePositions(int count, double* dev_xPosMatrix, double* de
         yPos[i] += yVel[i] * timeStep + 0.5 * accY[i] * timeStep * timeStep;
 
         // Handle boundary conditions after position update
-        if (((xPos[i] - radii[i]) <= 0) || ((xPos[i] + radii[i]) >= boxwidth)) {
+        if (((xPos[i] - radii[i]) <= 0) || ((xPos[i] + radii[i]) >= bw)) {
             xVel[i] = -xVel[i];
         }
-        if (((yPos[i] - radii[i]) <= 0) || ((yPos[i] + radii[i]) >= boxwidth)) {
+        if (((yPos[i] - radii[i]) <= 0) || ((yPos[i] + radii[i]) >= bw)) {
             yVel[i] = -yVel[i];
         }
     }
@@ -162,7 +162,7 @@ int main()
     const double B = 1;
 
     const int iterations = runTime / timeStep;
-    const int boxwidth = 25;
+    const double boxwidth = 25.0;
     // Allocate memory
     double* xPos = (double*)malloc(N * sizeof(double));
     double* yPos = (double*)malloc(N * sizeof(double));
@@ -186,7 +186,7 @@ int main()
         sigma[i] = 0.3 / pow(2, 1 / 6);
     }
     masses[N / 2] = 1000; // Brownian particle
-    radii[N / 2] = 0.7;
+    radii[N / 2] = 1;
 
     // Allocate device memory
     double* dev_xPos, * dev_yPos, * dev_xVel, * dev_yVel, * dev_accX, * dev_accY;
