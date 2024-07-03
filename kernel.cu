@@ -162,7 +162,7 @@ int main()
     const double B = 1;
 
     const int iterations = runTime / timeStep;
-    const double boxwidth = 35.0;
+    const double boxwidth = 34.0;
     // Allocate memory
     double* xPos = (double*)malloc(N * sizeof(double));
     double* yPos = (double*)malloc(N * sizeof(double));
@@ -180,13 +180,15 @@ int main()
         masses[i] = 1;
         xPos[i] = (double)rand() / (double)(RAND_MAX / 33);
         yPos[i] = (double)rand() / (double)(RAND_MAX / 33);
-        xVel[i] = (double)rand() / (double)(RAND_MAX / 5)-2.5;
-        yVel[i] = (double)rand() / (double)(RAND_MAX / 5)-2.5;
+        xVel[i] = (double)rand() / (double)(RAND_MAX / 6)-3;
+        yVel[i] = (double)rand() / (double)(RAND_MAX / 6)-3;
         radii[i] = 0.3;
         sigma[i] = 0.3 / pow(2, 1 / 6);
     }
-    masses[N / 2] = 1; // Brownian particle
-    radii[N / 2] = 0.3;
+    masses[N / 2] = 4.5e10; // Brownian particle
+    radii[N / 2] = 0.7;
+    xVel[N / 2] = 0;
+    yVel[N / 2] = 0;
 
     // Allocate device memory
     double* dev_xPos, * dev_yPos, * dev_xVel, * dev_yVel, * dev_accX, * dev_accY;
