@@ -185,8 +185,8 @@ int main()
         radii[i] = 0.3;
         sigma[i] = 0.3 / pow(2, 1 / 6);
     }
-    masses[N / 2] = 1; // Brownian particle
-    radii[N / 2] = 0.3;
+    masses[N / 2] = 1000; // Brownian particle
+    radii[N / 2] = 0.7;
 
     // Allocate device memory
     double* dev_xPos, * dev_yPos, * dev_xVel, * dev_yVel, * dev_accX, * dev_accY;
