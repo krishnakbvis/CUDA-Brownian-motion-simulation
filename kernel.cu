@@ -154,7 +154,7 @@ void printMatrix(double* matrix, int rows, int cols) {
 int main()
 {
     const double timeStep = 1e-4;
-    const int runTime = 10;
+    const int runTime = 40;
     int samplerate = 100;
     const int N = 400;
     const double epsilon = 0.1;
@@ -162,7 +162,7 @@ int main()
     const double B = 1;
 
     const int iterations = runTime / timeStep;
-    const double boxwidth = 35.0;
+    const double boxwidth = 37.0;
     // Allocate memory
     double* xPos = (double*)malloc(N * sizeof(double));
     double* yPos = (double*)malloc(N * sizeof(double));
@@ -178,15 +178,17 @@ int main()
     srand(time(NULL));
     for (int i = 0; i < N; i++) {
         masses[i] = 1;
-        xPos[i] = (double)rand() / (double)(RAND_MAX / 33);
-        yPos[i] = (double)rand() / (double)(RAND_MAX / 33);
-        xVel[i] = (double)rand() / (double)(RAND_MAX / 5)-2.5;
-        yVel[i] = (double)rand() / (double)(RAND_MAX / 5)-2.5;
+        xPos[i] = (double)rand() / (double)(RAND_MAX / (boxwidth-1));
+        yPos[i] = (double)rand() / (double)(RAND_MAX / (boxwidth-1));
+        xVel[i] = ((double)rand() / (double)(RAND_MAX / 7)) - 3.5;
+        yVel[i] = ((double)rand() / (double)(RAND_MAX / 7)) - 3.5;
         radii[i] = 0.3;
         sigma[i] = 0.3 / pow(2, 1 / 6);
     }
-    masses[N / 2] = 1; // Brownian particle
-    radii[N / 2] = 0.3;
+    masses[N / 2] = 4.5e10; // Brownian particle
+    radii[N / 2] = 0.7;
+    xVel[N / 2] = 0;
+    yVel[N / 2] = 0;
 
     // Allocate device memory
     double* dev_xPos, * dev_yPos, * dev_xVel, * dev_yVel, * dev_accX, * dev_accY;
