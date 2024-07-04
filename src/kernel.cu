@@ -38,7 +38,6 @@ __global__ void computeForces(double* forceX, double* forceY, double* xPos, doub
 }
 
 // Kernel to aggregate accelerations
-// Kernel to aggregate accelerations
 __global__ void aggregateAccelerations(double* forceX, double* forceY, double* accX, double* accY, const double* masses, int N)
 {
     int row = blockIdx.x * blockDim.x + threadIdx.x;
@@ -58,7 +57,7 @@ __global__ void aggregateAccelerations(double* forceX, double* forceY, double* a
 }
 
 
-
+// verlet integration kernel
 __global__ void integratePositions(int count, double* dev_xPosMatrix, double* dev_yPosMatrix, double* xPos, double* yPos,
     double* xVel, double* yVel, double* accX, double* accY, int N, double timeStep, double* radii, double bw) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
@@ -82,6 +81,7 @@ __global__ void integratePositions(int count, double* dev_xPosMatrix, double* de
     }
 }
 
+// verlet velocity integration kernel
 __global__ void integrateVelocities(double* xVel, double* yVel, double* oldAccX, double* oldAccY, double* newAccX, double* newAccY, int N, double timeStep) {
     int i = blockIdx.x * blockDim.x + threadIdx.x;
     if (i < N)
@@ -95,8 +95,7 @@ __global__ void integrateVelocities(double* xVel, double* yVel, double* oldAccX,
 }
 
 
-
-// Function to compute accelerations
+// compute accelerations
 cudaError_t computeAccelerations(double* dev_forceX, double* dev_forceY, double* dev_xPos, double* dev_yPos, double* dev_masses,
     double* dev_accX, double* dev_accY, double* dev_sigma,
     const unsigned int N, const double A, const double B, const double epsilon, const double timeStep)
@@ -107,7 +106,6 @@ cudaError_t computeAccelerations(double* dev_forceX, double* dev_forceY, double*
     dim3 dimBlock(threadsPerBlock, threadsPerBlock);
     dim3 dimGrid(blocksPerGrid, blocksPerGrid);
 
-    // Launch the kernel on the GPU 
     computeForces << <dimGrid, dimBlock >> > (dev_forceX, dev_forceY, dev_xPos, dev_yPos,
         N, A, B, dev_sigma, epsilon);
     cudaError_t cudaStatus = cudaDeviceSynchronize();
@@ -120,9 +118,6 @@ cudaError_t computeAccelerations(double* dev_forceX, double* dev_forceY, double*
 
     return cudaStatus;
 }
-
-
-#include <stdio.h>
 
 // Function to write a matrix to a CSV file
 void writeMatrixToFile(double* matrix, int rows, int cols, const char* filename) {
@@ -167,6 +162,7 @@ int main()
     double speed = 7;
     const int iterations = runTime / timeStep;
     const double boxwidth = 37.0;
+
     // Allocate memory
     double* xPos = (double*)malloc(N * sizeof(double));
     double* yPos = (double*)malloc(N * sizeof(double));
@@ -235,8 +231,6 @@ int main()
 
     // Main loop
     for (int count = 0; count < iterations; count++) {
-
-
         integratePositions << <blocksPerGrid, threadsPerBlock >> > (count, dev_xmat, dev_ymat, dev_xPos, dev_yPos,
             dev_xVel, dev_yVel, dev_accX, dev_accY, N, timeStep, dev_radii, boxwidth);
 
